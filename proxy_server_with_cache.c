@@ -171,7 +171,7 @@ int handle_request(int clientSocket, ParsedRequest *request, char *tempReq)
     {
         bytes_send = send(clientSocket, buf, bytes_send, 0);
 
-        for(int i=0;i<bytes_send/sizeof(char);i++){
+        for(size_t i = 0; i < (size_t)bytes_send/sizeof(char); i++){
             temp_buffer[temp_buffer_index] = buf[i];
             temp_buffer_index++;
         }
@@ -244,7 +244,7 @@ void* thread_fn(void* socketNew)
     }
 
     char *tempReq = (char*)malloc(strlen(buffer)*sizeof(char)+1);
-    for (int i = 0; i < strlen(buffer); i++)
+    for (size_t i = 0; i < strlen(buffer); i++)
     {
         tempReq[i] = buffer[i];
     }
@@ -397,6 +397,95 @@ int main(int argc, char * argv[]) {
         i++; 
     }
     close(proxy_socketId);
+    return 0;
+}
+
+cache_element* find(char* url){
+
+    cache_element* site=NULL;
+    int temp_lock_val = pthread_mutex_lock(&lock);
+	printf("Remove Cache Lock Acquired %d\n",temp_lock_val); 
+    if(head!=NULL){
+        site = head;
+        while (site!=NULL)
+        {
+            if(!strcmp(site->url,url)){
+				printf("LRU Time Track Before : %ld", site->lru_time_track);
+                printf("\nurl found\n");
+				site->lru_time_track = time(NULL);
+				printf("LRU Time Track After : %ld", site->lru_time_track);
+				break;
+            }
+            site=site->next;
+        }       
+    }
+	else {
+    printf("\nurl not found\n");
+	}
+    temp_lock_val = pthread_mutex_unlock(&lock);
+	printf("Remove Cache Lock Unlocked %d\n",temp_lock_val); 
+    return site;
+}
+
+void remove_cache_element(){
+    cache_element * p ;  	
+	cache_element * q ;		
+	cache_element * temp;	
+ 
+    int temp_lock_val = pthread_mutex_lock(&lock);
+	printf("Remove Cache Lock Acquired %d\n",temp_lock_val); 
+	if( head != NULL) { 
+		for (q = head, p = head, temp =head ; q -> next != NULL; 
+			q = q -> next) { 
+			if(( (q -> next) -> lru_time_track) < (temp -> lru_time_track)) {
+				temp = q -> next;
+				p = q;
+			}
+		}
+		if(temp == head) { 
+			head = head -> next; 
+		} else {
+			p->next = temp->next;	
+		}
+		cache_size = cache_size - (temp -> len) - sizeof(cache_element) - 
+		strlen(temp -> url) - 1;    
+		free(temp->data);     		
+		free(temp->url);
+		free(temp);
+	} 
+
+    temp_lock_val = pthread_mutex_unlock(&lock);
+	printf("Remove Cache Lock Unlocked %d\n",temp_lock_val); 
+}
+
+int add_cache_element(char* data,int size,char* url){
+    int temp_lock_val = pthread_mutex_lock(&lock);
+	printf("Add Cache Lock Acquired %d\n", temp_lock_val);
+    int element_size=size+1+strlen(url)+sizeof(cache_element); 
+    if(element_size>MAX_ELEMENT_SIZE){
+		
+        temp_lock_val = pthread_mutex_unlock(&lock);
+		printf("Add Cache Lock Unlocked %d\n", temp_lock_val);
+        return 0;
+    }
+    else
+    {   while(cache_size+element_size>MAX_SIZE){
+            remove_cache_element();
+        }
+        cache_element* element = (cache_element*) malloc(sizeof(cache_element)); 
+        element->data= (char*)malloc(size+1); 
+		strcpy(element->data,data); 
+        element -> url = (char*)malloc(1+( strlen( url )*sizeof(char)  )); 
+		strcpy( element -> url, url );
+		element->lru_time_track=time(NULL);    
+        element->next=head; 
+        element->len=size;
+        head=element;
+        cache_size+=element_size;
+        temp_lock_val = pthread_mutex_unlock(&lock);
+		printf("Add Cache Lock Unlocked %d\n", temp_lock_val);
+        return 1;
+    }
     return 0;
 }
 
